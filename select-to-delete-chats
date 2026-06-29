@@ -1,0 +1,210 @@
+(async () => {
+  const AUTH = "Bearer YOUR_TOKEN_HERE";
+
+  const headers = {
+    authorization: AUTH,
+    "oai-device-id": document.cookie.match(/oai-did=([^;]+)/)?.[1] ?? "",
+    "oai-session-id": "YOUR_ID_HERE"
+  };
+
+  async function api(path, opts = {}) {
+    const r = await fetch(path, {
+      credentials: "include",
+      ...opts,
+      headers: {
+        ...headers,
+        ...(opts.headers || {})
+      }
+    });
+
+    if (!r.ok) throw new Error(`HTTP ${r.status} for ${path}`);
+    return r;
+  }
+
+  async function loadConversations() {
+    const all = [];
+    let offset = 0;
+    const limit = 100;
+
+    while (true) {
+      const r = await api(
+        `/backend-api/conversations?offset=${offset}&limit=${limit}&order=updated&is_archived=false&is_starred=false`
+      );
+      const data = await r.json();
+
+      all.push(...data.items);
+
+      if (all.length >= data.total || data.items.length === 0) break;
+      offset += limit;
+    }
+
+    return all;
+  }
+
+  const conversations = await loadConversations();
+
+  const overlay = document.createElement("div");
+  overlay.id = "cgpt-conversation-manager";
+  overlay.style = `
+    position: fixed;
+    inset: 20px;
+    z-index: 2147483647;
+    background: white;
+    color: black;
+    border: 2px solid #333;
+    border-radius: 8px;
+    box-shadow: 0 10px 40px rgba(0,0,0,.35);
+    font-family: Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+  `;
+
+  overlay.innerHTML = `
+    <div style="padding:12px; border-bottom:1px solid #ddd; display:flex; gap:8px; align-items:center;">
+      <strong>ChatGPT Conversation Manager</strong>
+      <span id="cgpt-count" style="margin-left:auto;"></span>
+      <button id="cgpt-close">Close</button>
+    </div>
+
+    <div style="padding:12px; border-bottom:1px solid #ddd; display:flex; gap:8px; align-items:center;">
+      <input id="cgpt-search" placeholder="Filter by title..." style="flex:1; padding:8px;">
+      <button id="cgpt-select-visible">Select visible</button>
+      <button id="cgpt-clear">Clear</button>
+      <button id="cgpt-hide" style="background:#c62828;color:white;border:0;padding:8px 12px;border-radius:4px;">Remove selected</button>
+    </div>
+
+    <div id="cgpt-list" style="overflow:auto; flex:1; padding:8px;"></div>
+
+    <div id="cgpt-status" style="padding:10px; border-top:1px solid #ddd; font-size:12px;"></div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const list = overlay.querySelector("#cgpt-list");
+  const search = overlay.querySelector("#cgpt-search");
+  const count = overlay.querySelector("#cgpt-count");
+  const status = overlay.querySelector("#cgpt-status");
+  const selected = new Set();
+
+  function esc(s) {
+    return String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+  }
+
+  function visibleConversations() {
+    const q = search.value.trim().toLowerCase();
+    return conversations.filter(c =>
+      !q ||
+      (c.title || "").toLowerCase().includes(q) ||
+      (c.id || "").toLowerCase().includes(q)
+    );
+  }
+
+  function render() {
+    const visible = visibleConversations();
+
+    count.textContent = `${selected.size} selected / ${conversations.length} total`;
+
+    list.innerHTML = visible.map((c, i) => `
+      <label style="
+        display:block;
+        padding:8px;
+        border-bottom:1px solid #eee;
+        cursor:pointer;
+      ">
+        <input type="checkbox" data-id="${esc(c.id)}" ${selected.has(c.id) ? "checked" : ""}>
+        <strong>${esc(c.title || "(untitled)")}</strong>
+        <div style="font-size:12px;color:#555;margin-left:24px;">
+          ${esc(c.update_time || "")}
+        </div>
+        <div style="font-size:11px;color:#777;margin-left:24px;">
+          ${esc(c.id)}
+        </div>
+      </label>
+    `).join("");
+
+    status.textContent = `Showing ${visible.length} conversations.`;
+  }
+
+  list.addEventListener("change", e => {
+    if (!e.target.matches("input[type=checkbox][data-id]")) return;
+
+    if (e.target.checked) selected.add(e.target.dataset.id);
+    else selected.delete(e.target.dataset.id);
+
+    count.textContent = `${selected.size} selected / ${conversations.length} total`;
+  });
+
+  search.addEventListener("input", render);
+
+  overlay.querySelector("#cgpt-close").onclick = () => overlay.remove();
+
+  overlay.querySelector("#cgpt-clear").onclick = () => {
+    selected.clear();
+    render();
+  };
+
+  overlay.querySelector("#cgpt-select-visible").onclick = () => {
+    for (const c of visibleConversations()) selected.add(c.id);
+    render();
+  };
+
+  overlay.querySelector("#cgpt-hide").onclick = async () => {
+    const ids = [...selected];
+
+    if (!ids.length) {
+      alert("Nothing selected.");
+      return;
+    }
+
+    const selectedTitles = conversations
+      .filter(c => selected.has(c.id))
+      .map(c => c.title || "(untitled)")
+      .join("\n");
+
+    if (!confirm(`Remove ${ids.length} conversations?\n\n${selectedTitles}`)) return;
+
+    let ok = 0;
+    let fail = 0;
+
+    for (const id of ids) {
+      const c = conversations.find(x => x.id === id);
+      status.textContent = `Removing: ${c?.title || id}`;
+
+      try {
+        const r = await fetch(`/backend-api/conversation/${id}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: {
+            ...headers,
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({ is_visible: false })
+        });
+
+        if (r.ok) {
+          ok++;
+          selected.delete(id);
+          const idx = conversations.findIndex(x => x.id === id);
+          if (idx >= 0) conversations.splice(idx, 1);
+        } else {
+          fail++;
+          console.warn("Failed", r.status, c);
+        }
+      } catch (err) {
+        fail++;
+        console.error("Failed", c, err);
+      }
+
+      render();
+      await new Promise(resolve => setTimeout(resolve, 150));
+    }
+
+    status.textContent = `Done. Removed ${ok}. Failed ${fail}. Refresh the page.`;
+  };
+
+  render();
+})();

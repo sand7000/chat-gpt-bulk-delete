@@ -1,0 +1,119 @@
+# ChatGPT Cleanup Utilities
+
+This repository contains two independent utilities:
+
+1. **Delete all files** from your ChatGPT File Library.
+2. **Selectively remove conversations** using a browser UI.
+
+These tools use ChatGPT's internal web APIs. They are unofficial and may stop working if OpenAI changes the website.
+
+## Requirements
+
+* An active ChatGPT session.
+* A ChatGPT access token.
+* For the Node.js script:
+
+  * Node.js 18 or newer (uses the built in `fetch` API).
+
+# Obtaining Your Token and Session ID
+
+Both scripts require values taken from an authenticated ChatGPT browser session.
+
+The easiest way to obtain them is from your browser's Developer Tools:
+
+1. Open ChatGPT.
+2. Open Developer Tools (`F12` or `Ctrl+Shift+I`).
+3. Open the **Network** tab.
+4. Refresh the page.
+5. Select one of the requests made to `chatgpt.com`.
+6. Inspect the request headers.
+
+You'll need:
+
+* The **Authorization** bearer token
+* The **oai-session-id** header (browser script only)
+
+The browser script also automatically reads your `oai-device-id` cookie.
+
+# 1. Delete All Files
+
+This script permanently deletes every file in your ChatGPT File Library.
+
+## Usage
+
+Export your ChatGPT access token:
+
+```
+export CHATGPT_TOKEN="YOUR_TOKEN_HERE"
+```
+
+Run the script:
+
+```
+node delete-all-chatgpt-files.js
+```
+
+The script will:
+
+* List all files in your File Library.
+* Delete each file.
+* Print progress.
+* Display totals when finished.
+
+Example output:
+
+```
+Found 50 files
+Deleting file-abc123
+Deleted file-abc123
+...
+Done.
+Scanned: 214
+Deleted: 214
+```
+
+# 2. Select Conversations to Remove
+
+This utility runs entirely inside your browser.
+
+It creates a simple interface that lets you:
+
+* Search conversations
+* Select conversations
+* Remove only the selected conversations
+
+## Before Running
+
+Open the script and replace these placeholders:
+
+```
+const AUTH = "Bearer YOUR_TOKEN_HERE";
+```
+
+Replace with your bearer token.
+
+Also replace:
+
+```
+"oai-session-id": "YOUR_ID_HERE"
+```
+
+with your current session ID.
+
+## Running
+
+1. Open ChatGPT in your browser.
+2. Open Developer Tools.
+3. Open the **Console** tab.
+4. Paste the entire script.
+5. Press Enter.
+
+A conversation manager window will appear.
+
+You can:
+
+* Filter conversations by title.
+* Select individual conversations.
+* Select all currently visible conversations.
+* Clear your selection.
+* Remove the selected conversations.
